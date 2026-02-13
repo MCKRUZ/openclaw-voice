@@ -1,0 +1,242 @@
+# Jarvis Voice Bot Configuration
+# Environment variables in .env override these values
+
+# ============================================================================
+# Discord Settings
+# ============================================================================
+discord:
+  # Bot token from Discord Developer Portal
+  # REQUIRED: Set via DISCORD_TOKEN environment variable
+  token: null
+
+  # Command prefix for text commands (if needed)
+  command_prefix: "/"
+
+  # Bot status message
+  status_message: "Listening in voice channels"
+
+  # Auto-join voice channel on bot start (if user is in voice)
+  auto_join: false
+
+# ============================================================================
+# Agent Configuration
+# ============================================================================
+agents:
+  # Default agent (jarvis or sage)
+  default: "jarvis"
+
+  # Per-agent settings
+  jarvis:
+    # TTS voice reference file (relative to server/voices/)
+    voice_file: "jarvis.wav"
+
+    # Agent personality for LLM context
+    personality: |
+      You are Jarvis, an intelligent, witty, and helpful AI assistant.
+      You speak naturally and conversationally, with subtle British sophistication.
+      You provide accurate information and thoughtful insights without being
+      verbose. You have a dry sense of humor but know when to be serious.
+
+    # TTS emotion exaggeration (0.0 = none, 1.0 = full)
+    emotion_exaggeration: 0.3
+
+  sage:
+    voice_file: "sage.wav"
+    personality: |
+      You are Sage, a wise, calm, and philosophical AI assistant.
+      You speak thoughtfully and deliberately, offering deep insights and
+      perspectives. You are patient, empathetic, and help people think through
+      complex problems. Your tone is warm and encouraging.
+    emotion_exaggeration: 0.2
+
+# ============================================================================
+# OpenClaw API
+# ============================================================================
+openclaw:
+  # Base URL for OpenClaw API
+  # REQUIRED: Set via OPENCLAW_BASE_URL environment variable
+  base_url: null
+
+  # Authentication token
+  # REQUIRED: Set via OPENCLAW_TOKEN environment variable
+  token: null
+
+  # Request timeout (seconds)
+  timeout: 8.0
+
+  # Retry attempts on failure
+  max_retries: 1
+
+  # Model/agent selection
+  model: "claude-sonnet-4"
+
+# ============================================================================
+# Pipeline Configuration
+# ============================================================================
+pipeline:
+  # Voice Activity Detection (Silero VAD)
+  vad:
+    # Silence duration to consider speech ended (seconds)
+    silence_threshold: 0.3
+
+    # Minimum speech duration to process (seconds)
+    min_speech_duration: 0.5
+
+    # VAD confidence threshold (0.0-1.0)
+    speech_threshold: 0.5
+
+  # Smart Turn v3 Configuration
+  turn_detection:
+    # Turn completion confidence threshold (0.0-1.0)
+    # Higher = more certain turn is complete before proceeding
+    threshold: 0.7
+
+    # Maximum wait time after silence before forcing completion (seconds)
+    max_wait: 3.0
+
+    # Model path (relative to models/ directory)
+    model_path: "smart_turn_v3.onnx"
+
+  # Speech-to-Text (faster-whisper)
+  stt:
+    # Model size: tiny, base, small, medium, large-v3
+    model_size: "medium"
+
+    # Device: cuda or cpu
+    device: "cuda"
+
+    # Compute type: float16, float32, int8
+    compute_type: "float16"
+
+    # Beam size for decoding (higher = more accurate, slower)
+    beam_size: 5
+
+    # Language hint (null = auto-detect)
+    language: "en"
+
+    # VAD filter (use built-in VAD in whisper)
+    vad_filter: false
+
+  # Relevance Filter
+  relevance:
+    # Default sensitivity: low, medium, high
+    default_sensitivity: "medium"
+
+    # Sensitivity thresholds (LLM confidence 0.0-1.0)
+    thresholds:
+      low: 1.0      # Only fast path (name mentions)
+      medium: 0.75  # Fast path + LLM with 75% confidence
+      high: 0.5     # Fast path + LLM with 50% confidence
+
+    # LLM for classification (if not using OpenClaw)
+    # Can be: openai, anthropic, local, openclaw
+    classifier: "openclaw"
+
+    # Classification timeout (seconds)
+    timeout: 2.0
+
+    # Cache classifications (avoid re-classifying similar utterances)
+    enable_cache: true
+    cache_ttl: 300  # seconds
+
+  # Transcript Management
+  transcript:
+    # Rolling window duration (seconds)
+    window_duration: 90
+
+    # Maximum number of turns to keep
+    max_turns: 20
+
+    # Timezone for timestamp display
+    timezone: "America/Los_Angeles"
+
+  # Text-to-Speech
+  tts:
+    # TTS engine: chatterbox, coqui, piper
+    engine: "coqui"
+
+    # Device: cuda or cpu
+    device: "cuda"
+
+    # Streaming: generate and play audio in chunks
+    streaming: true
+
+    # Chunk duration for streaming (seconds)
+    chunk_duration: 0.5
+
+    # Voice cloning settings (for Coqui XTTS)
+    coqui:
+      model_name: "tts_models/multilingual/multi-dataset/xtts_v2"
+      language: "en"
+      temperature: 0.75
+      length_penalty: 1.0
+      repetition_penalty: 5.0
+      top_k: 50
+      top_p: 0.85
+
+  # Audio Buffering
+  audio:
+    # Buffer duration per user (seconds)
+    buffer_duration: 10.0
+
+    # Sample rate for processing (Hz)
+    processing_sample_rate: 16000
+
+    # Discord audio sample rate (Hz)
+    discord_sample_rate: 48000
+
+# ============================================================================
+# FastAPI Server
+# ============================================================================
+server:
+  # Server host
+  host: "0.0.0.0"
+
+  # Server port
+  port: 8880
+
+  # Enable TTS endpoint
+  enable_tts: true
+
+  # Enable STT endpoint
+  enable_stt: true
+
+  # API key for authentication (optional)
+  # Set via SERVER_API_KEY environment variable
+  api_key: null
+
+  # CORS settings
+  cors:
+    enabled: true
+    allowed_origins: ["*"]
+    allowed_methods: ["*"]
+    allowed_headers: ["*"]
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Enable latency tracking
+  track_latency: true
+
+  # Per-module log levels (override global level)
+  modules:
+    discord_bot: "INFO"
+    pipeline: "INFO"
+    server: "INFO"
+    openclaw_client: "DEBUG"
+
+  # Log file (optional, null = console only)
+  file: null
+
+  # Rotate logs
+  rotation:
+    enabled: false
+    max_bytes: 10485760  # 10MB
+    backup_count: 5

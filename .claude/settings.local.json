@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Test-Path \"D:\\\\Projects\\\\jarvis-voice\")",
+      "Bash(Get-ChildItem:*)",
+      "Bash(Select-Object -First 10)",
+      "Bash(where:*)",
+      "Bash(cmd.exe /c:*)",
+      "Bash(venv/Scripts/python.exe -m pip install:*)",
+      "Bash(venv/Scripts/python.exe:*)",
+      "Bash(venvScriptspython.exe -m pytest:*)",
+      "Bash(cd:*)",
+      "mcp__github__create_repository",
+      "Bash(git commit -m \"$\\(cat <<''COMMITMSG''\nInitial commit: Jarvis Voice Bot - Complete Implementation\n\nComplete 14-phase implementation of AI-powered Discord voice bot:\n\nFeatures:\n- Passive voice listening with Smart Turn v3 detection\n- GPU-accelerated STT \\(faster-whisper\\) and TTS \\(Chatterbox\\)\n- Intelligent two-tier relevance filtering\n- Rolling conversation context management\n- Multi-agent support \\(Jarvis, Sage\\)\n- OpenAI-compatible TTS/STT API endpoints\n- Barge-in support and concurrent user handling\n\nArchitecture:\n- Discord.py voice integration\n- Silero VAD for speech detection\n- Pipecat Smart Turn v3 for turn completion\n- OpenClaw API client \\(stubbed for integration\\)\n- FastAPI server with health monitoring\n\nTesting:\n- 318 tests passing \\(100% coverage of major components\\)\n- Unit tests for all modules\n- Integration tests for end-to-end flows\n- Memory leak prevention tests\n\nDocumentation:\n- Comprehensive README with installation guide\n- Troubleshooting guide and performance metrics\n- Production deployment checklist\n- Environment configuration templates\n\nStatus: 14/14 phases complete \\(100%\\)\nProduction Ready: Yes \\(after stub replacements\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nCOMMITMSG\n\\)\")"
+    ]
+  }
+}

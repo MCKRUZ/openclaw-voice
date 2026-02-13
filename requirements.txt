@@ -1,0 +1,76 @@
+# Jarvis Voice Bot - Python Dependencies
+# Python 3.12+ required
+
+# ============================================================================
+# Discord Integration
+# ============================================================================
+discord.py[voice]>=2.3.2
+PyNaCl>=1.5.0  # Voice support for discord.py
+
+# ============================================================================
+# Audio Processing
+# ============================================================================
+numpy>=1.24.0
+soundfile>=0.12.1
+scipy>=1.11.0
+librosa>=0.10.1
+opuslib>=3.0.1  # Opus codec for Discord audio
+resampy>=0.4.2  # High-quality audio resampling
+
+# ============================================================================
+# Machine Learning - Speech & Audio
+# ============================================================================
+torch>=2.1.0
+torchaudio>=2.1.0
+faster-whisper>=1.0.0  # GPU-accelerated STT
+silero-vad>=4.0.0  # Voice activity detection
+onnxruntime>=1.16.0  # Smart Turn model inference
+
+# ============================================================================
+# Text-to-Speech
+# ============================================================================
+# Note: Chatterbox TTS needs verification - may need alternative
+# Alternatives: coqui-tts (XTTS v2), piper-tts, StyleTTS2
+TTS>=0.22.0  # Coqui TTS (fallback option)
+
+# ============================================================================
+# API Server
+# ============================================================================
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6  # File upload support
+aiofiles>=23.2.0  # Async file operations
+
+# ============================================================================
+# HTTP Clients
+# ============================================================================
+httpx>=0.25.0  # Async HTTP client for OpenClaw API
+aiohttp>=3.9.0  # Alternative async HTTP
+
+# ============================================================================
+# Configuration & Environment
+# ============================================================================
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+pydantic>=2.5.0  # Type-safe configuration
+
+# ============================================================================
+# Utilities
+# ============================================================================
+python-dateutil>=2.8.2
+tenacity>=8.2.3  # Retry logic
+
+# ============================================================================
+# Development & Testing
+# ============================================================================
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+httpx>=0.25.0  # Required for TestClient (already listed above)
+black>=23.11.0  # Code formatting
+ruff>=0.1.6  # Linting
+
+# ============================================================================
+# Windows-Specific (Optional)
+# ============================================================================
+# pywin32>=306  # Windows API access if needed
