@@ -1,4 +1,4 @@
-# Jarvis Voice Bot
+# Discord Voice Bot
 
 AI-powered voice assistant for Discord with natural conversation and OpenAI-compatible API.
 
