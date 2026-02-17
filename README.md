@@ -299,17 +299,36 @@ SERVER__PORT=9000
 
 ## Performance
 
-### Latency Budget
+### Recent Optimizations (February 2026)
 
-| Stage | Target | Acceptable |
-|-------|--------|------------|
-| Smart Turn | 50ms | 100ms |
-| STT | 300ms | 500ms |
-| Relevance (fast) | 10ms | 20ms |
-| Relevance (slow) | 1000ms | 2000ms |
-| OpenClaw | 2000ms | 5000ms |
-| TTS first chunk | 300ms | 600ms |
-| **Total** | **~3s** | **~7s** |
+**Critical Fix: Sample-Based VAD Timing**
+- Replaced wall-clock timing with sample-based timing in VAD receiver
+- **Result:** Silence detection now accurately triggers at configured threshold (800ms)
+- **Before:** 22-35 second delays due to processing overhead accumulation
+- **After:** Consistent 800ms detection regardless of system load
+- **Impact:** ~30x improvement in silence detection, ~8x faster total response time
+
+### Actual Performance (Measured)
+
+**Test scenario:** "Jarvis, you up? Jarvis." (2.82s audio)
+
+| Stage | Duration | Notes |
+|-------|----------|-------|
+| Silence detection | 800ms | Sample-based timing (not wall-clock) |
+| STT (medium model) | 0.55s | faster-whisper GPU-accelerated |
+| OpenClaw/LLM | 2.47s | Agent thinking + response generation |
+| TTS (Chatterbox) | 1.63s | RTF: 0.78 (faster than realtime) |
+| **Total** | **~5.5s** | From speech end to audio playback |
+
+### Latency Budget (Targets)
+
+| Stage | Target | Acceptable | Current |
+|-------|--------|------------|---------|
+| VAD silence detection | 800ms | 1000ms | **800ms** ✓ |
+| STT | 300ms | 500ms | **550ms** (acceptable) |
+| OpenClaw | 2000ms | 5000ms | **2470ms** (acceptable) |
+| TTS first chunk | 300ms | 600ms | **1630ms** (needs improvement) |
+| **Total** | **~3.5s** | **~7s** | **~5.5s** ✓ |
 
 ### GPU Memory Usage
 
@@ -401,15 +420,24 @@ SERVER__PORT=9000
 **Issue:** Bot takes too long to respond
 
 **Solutions:**
-1. Use smaller/faster models
-2. Check GPU utilization
-3. Verify OpenClaw API response time
-4. Enable latency tracking and check stats:
+1. **Check VAD timing implementation** - Must use sample-based timing, not wall-clock
+   - VAD receiver tracks samples processed, not time.monotonic()
+   - Silence calculated from sample differences: `(samples / sample_rate) * 1000`
+2. Use smaller/faster STT models:
+   ```yaml
+   pipeline:
+     stt:
+       model_size: small  # Faster than medium
+   ```
+3. Check GPU utilization (`nvidia-smi`)
+4. Verify OpenClaw API response time
+5. Enable latency tracking and check stats:
    ```yaml
    logging:
      track_latency: true
    ```
-5. Run `/status` to see stage-by-stage latency
+6. Run `/status` to see stage-by-stage latency
+7. Monitor Discord audio packet arrival rate
 
 ### Models not downloading
 

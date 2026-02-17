@@ -28,7 +28,7 @@ agents:
   # Per-agent settings
   jarvis:
     # TTS voice reference file (relative to server/voices/)
-    voice_file: "jarvis.wav"
+    voice_file: "jarvis.mp3"
 
     # Agent personality for LLM context
     personality: |
@@ -50,25 +50,35 @@ agents:
     emotion_exaggeration: 0.2
 
 # ============================================================================
-# OpenClaw API
+# OpenClaw Gateway
 # ============================================================================
 openclaw:
-  # Base URL for OpenClaw API
+  # WebSocket URL for OpenClaw Gateway
   # REQUIRED: Set via OPENCLAW_BASE_URL environment variable
+  # Format: ws://IP:PORT (default port: 18789)
   base_url: null
 
   # Authentication token
-  # REQUIRED: Set via OPENCLAW_TOKEN environment variable
+  # REQUIRED: Set via OPENCLAW_AUTH_TOKEN environment variable
   token: null
 
   # Request timeout (seconds)
   timeout: 8.0
+
+  # Retry timeout (seconds)
+  retry_timeout: 15.0
 
   # Retry attempts on failure
   max_retries: 1
 
   # Model/agent selection
   model: "claude-sonnet-4"
+
+  # Agent ID for session keys
+  agent_id: "jarvis"
+
+  # Session scope: per-peer or shared
+  session_scope: "per-peer"
 
 # ============================================================================
 # Pipeline Configuration
@@ -95,12 +105,14 @@ pipeline:
     max_wait: 3.0
 
     # Model path (relative to models/ directory)
-    model_path: "smart_turn_v3.onnx"
+    # Using v3.2 GPU model for best performance with RTX 5090
+    model_path: "smart-turn-v3.2-gpu.onnx"
 
   # Speech-to-Text (faster-whisper)
   stt:
     # Model size: tiny, base, small, medium, large-v3
-    model_size: "medium"
+    # Using "small" for faster transcription (was "medium")
+    model_size: "small"
 
     # Device: cuda or cpu
     device: "cuda"
@@ -109,7 +121,8 @@ pipeline:
     compute_type: "float16"
 
     # Beam size for decoding (higher = more accurate, slower)
-    beam_size: 5
+    # Optimized for voice chat: beam_size=1 is 3-5x faster with minimal quality loss
+    beam_size: 1
 
     # Language hint (null = auto-detect)
     language: "en"

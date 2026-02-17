@@ -19,12 +19,15 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual Environment
 venv/
 ENV/
 env/
 .venv
+env.bak/
+venv.bak/
 
 # IDEs
 .vscode/
@@ -32,35 +35,186 @@ env/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
 
-# Environment Variables
+# Environment Variables & Secrets (CRITICAL!)
 .env
+.env.*
+!.env.example
+*.env
+.envrc
+secrets/
+credentials/
+*.key
+*.pem
+*.p12
+*.pfx
+api_keys.txt
+tokens.txt
 
-# Models (large files)
+# Configuration Overrides (keep generic config.yaml, ignore local overrides)
+config.local.yaml
+config.*.yaml
+!config.yaml
+openclaw.json
+!openclaw.json.example
+
+# Models (large files - download locally, don't commit)
 models/*.onnx
 models/*.pt
 models/*.bin
+models/*.safetensors
+models/*.gguf
+models/*.h5
+models/*.pb
+models/*.tflite
+models/whisper-*
+models/smart-turn-*
+models/chatterbox-*
+*.model
+*.pth
+*.ckpt
 
-# Voice Files (user-specific)
+# Voice Files (user-specific - NEVER commit personal voice samples!)
 server/voices/*.wav
 server/voices/*.mp3
+server/voices/*.flac
+server/voices/*.ogg
+server/voices/*.m4a
+server/voices/*.aac
 !server/voices/.gitkeep
+!server/voices/README.md
+
+# Audio Test Files
+test_audio/
+audio_samples/
+recordings/
+*.wav
+*.mp3
+!tests/fixtures/*.wav
+!tests/fixtures/*.mp3
 
 # Test Coverage
 .coverage
+.coverage.*
 htmlcov/
 .pytest_cache/
 *.cover
+.hypothesis/
+.tox/
+coverage.xml
+*.coveragerc
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Logs
+# Logs & Debug Output
 *.log
 logs/
+*.log.*
+log_*.txt
+debug.log
+error.log
+output.log
 
-# Temporary
+# Temporary Files
 *.tmp
+*.temp
 *.bak
+*.backup
+*.swp
+*~
 .cache/
+tmp/
+temp/
+
+# User Data & Sessions
+user_data/
+sessions/
+transcripts/
+conversation_history/
+*.db
+*.sqlite
+*.sqlite3
+
+# Personal Notes & Documentation (keep public docs, ignore personal notes)
+NOTES.md
+TODO.md
+PERSONAL.md
+MY_*.md
+notes/
+personal/
+
+# Local Testing
+local_test/
+sandbox/
+scratch/
+
+# Build & Distribution
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor Backups
+*~
+*.orig
+*.rej
+
+# Package Manager
+node_modules/
+package-lock.json
+yarn.lock
+.pnp/
+.pnp.js
+
+# Compiled Documentation
+docs/_build/
+site/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# Pytype
+.pytype/
+
+# Cython
+cython_debug/
+
+# CRITICAL: Ensure no accidental commits of:
+# - Discord bot tokens
+# - OpenClaw Gateway tokens
+# - API keys (OpenAI, Anthropic, etc.)
+# - Voice reference files (personal/copyrighted)
+# - User conversation data
+# - Local configuration with real URLs/credentials

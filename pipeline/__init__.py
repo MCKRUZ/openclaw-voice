@@ -22,6 +22,7 @@ from .orchestrator import (
     UserPipeline,
     PipelineOrchestrator,
 )
+from .query_router import QueryRouter, RoutingDecision
 
 __all__ = [
     "AudioRingBuffer",
@@ -47,4 +48,6 @@ __all__ = [
     "PipelineState",
     "UserPipeline",
     "PipelineOrchestrator",
+    "QueryRouter",
+    "RoutingDecision",
 ]

@@ -48,13 +48,16 @@ class AgentsConfig(BaseModel):
 
 
 class OpenClawConfig(BaseModel):
-    """OpenClaw API configuration."""
+    """OpenClaw Gateway WebSocket configuration."""
 
     base_url: Optional[str] = None
     token: Optional[str] = None
     timeout: float = 8.0
+    retry_timeout: float = 15.0
     max_retries: int = 1
     model: str = "claude-sonnet-4"
+    agent_id: str = "main"
+    session_scope: str = "per-peer"
 
     @field_validator("base_url")
     @classmethod
@@ -69,8 +72,15 @@ class OpenClawConfig(BaseModel):
     def validate_token(cls, v: Optional[str]) -> Optional[str]:
         """Get token from environment if not set."""
         if v is None or v.strip() == "":
-            return os.getenv("OPENCLAW_TOKEN")
+            return os.getenv("OPENCLAW_AUTH_TOKEN")
         return v
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_agent_id(cls, v: str) -> str:
+        """Get agent ID from environment if set."""
+        env_value = os.getenv("OPENCLAW_AGENT_ID")
+        return env_value if env_value else v
 
 
 class VADConfig(BaseModel):

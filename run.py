@@ -65,10 +65,25 @@ async def main():
             logger.warning(f"Sage voice file not found: {sage_voice}")
             logger.warning("TTS will not work until voice file is provided")
 
+        # Validate OpenClaw Gateway configuration
+        if not config.openclaw.base_url:
+            logger.error("OpenClaw Gateway URL not configured!")
+            logger.error("Set OPENCLAW_BASE_URL environment variable in .env file")
+            return 1
+
+        if not config.openclaw.token:
+            logger.error("OpenClaw Gateway token not configured!")
+            logger.error("Set OPENCLAW_AUTH_TOKEN environment variable in .env file")
+            return 1
+
+        logger.info("✓ OpenClaw Gateway configured")
+
         # Display configuration summary
         logger.info("")
         logger.info("Configuration Summary:")
         logger.info(f"  Default Agent: {config.agents.default}")
+        logger.info(f"  OpenClaw Gateway: {config.openclaw.base_url}")
+        logger.info(f"  OpenClaw Agent ID: {config.openclaw.agent_id}")
         logger.info(f"  STT Model: {config.pipeline.stt.model_size}")
         logger.info(f"  STT Device: {config.pipeline.stt.device}")
         logger.info(f"  TTS Engine: {config.pipeline.tts.engine}")
@@ -93,9 +108,14 @@ async def main():
         tts_synthesizer = await create_tts_synthesizer(
             voice_refs=voice_refs,
             device=config.pipeline.tts.device,
-            sample_rate=config.pipeline.tts.sample_rate,
+            sample_rate=24000,  # Default sample rate for Chatterbox TTS
         )
         logger.info(f"✓ TTS engine initialized ({config.pipeline.tts.device})")
+
+        # Warmup TTS and cache common phrases
+        logger.info("Warming up TTS engine and caching common phrases...")
+        await tts_synthesizer.warmup()
+        logger.info(f"✓ TTS warmup complete ({len(tts_synthesizer.phrase_cache)} phrases cached)")
 
         # Initialize STT transcriber (shared between Discord and API)
         stt_transcriber = await create_transcriber(
@@ -107,6 +127,118 @@ async def main():
             f"✓ STT engine initialized "
             f"({config.pipeline.stt.model_size} on {config.pipeline.stt.device})"
         )
+
+        # Initialize OpenClaw Gateway client
+        logger.info("Initializing OpenClaw Gateway client...")
+        from openclaw_client import OpenClawConfig
+
+        openclaw_config = OpenClawConfig(
+            base_url=config.openclaw.base_url,
+            auth_token=config.openclaw.token,
+            timeout=config.openclaw.timeout,
+            retry_timeout=config.openclaw.retry_timeout,
+            agent_id=config.openclaw.agent_id,
+            session_scope=config.openclaw.session_scope,
+        )
+        logger.info(f"✓ OpenClaw Gateway client initialized ({config.openclaw.base_url})")
+
+        # Initialize Pipeline Components
+        logger.info("Initializing voice processing pipeline...")
+
+        from pipeline import (
+            SileroVAD,
+            SmartTurnDetector,
+            PipelineTranscriber,
+            TranscriptManager,
+            RelevanceFilter,
+            PipelineOrchestrator,
+            PipelineConfig,
+            QueryRouter,
+        )
+        from openclaw_client import OpenClawClient
+
+        # Create pipeline components
+        vad = SileroVAD()
+        logger.info("✓ VAD initialized (Silero)")
+
+        turn_detector = SmartTurnDetector(
+            model_path=Path("models") / config.pipeline.turn_detection.model_path,
+            threshold=config.pipeline.turn_detection.threshold,
+        )
+        logger.info("✓ Smart Turn v3 detector initialized")
+
+        stt_pipeline = PipelineTranscriber(
+            transcriber=stt_transcriber,
+        )
+        logger.info("✓ STT pipeline wrapped")
+
+        transcript_manager = TranscriptManager(
+            max_age_seconds=config.pipeline.transcript.window_duration,
+            max_entries=config.pipeline.transcript.max_turns,
+        )
+        logger.info("✓ Transcript manager initialized")
+
+        relevance_filter = RelevanceFilter(
+            agent_name=config.agents.default,
+            sensitivity=config.pipeline.relevance.default_sensitivity,
+        )
+        logger.info("✓ Relevance filter initialized")
+
+        query_router = QueryRouter(default_model="sonnet")
+        logger.info("✓ Query router initialized")
+
+        # Create OpenClaw client instance for pipeline
+        openclaw_client = OpenClawClient(openclaw_config)
+
+        # Create audio output callback (will be set by Discord bot)
+        audio_output_callbacks = {}
+
+        def audio_output_callback(user_id: int, audio_data):
+            """Route audio output to appropriate callback."""
+            if user_id in audio_output_callbacks:
+                audio_output_callbacks[user_id](audio_data)
+
+        # Create pipeline orchestrator
+        pipeline_config = PipelineConfig(
+            vad_silence_duration=config.pipeline.vad.silence_threshold,
+            turn_completion_threshold=config.pipeline.turn_detection.threshold,
+            turn_wait_timeout=config.pipeline.turn_detection.max_wait,
+            stt_timeout=5.0,
+            relevance_timeout=2.0,
+            llm_timeout=10.0,
+            tts_timeout=10.0,
+            sample_rate=16000,
+        )
+
+        orchestrator = PipelineOrchestrator(
+            config=pipeline_config,
+            vad=vad,
+            turn_detector=turn_detector,
+            transcriber=stt_pipeline,
+            transcript_manager=transcript_manager,
+            relevance_filter=relevance_filter,
+            llm_client=openclaw_client,
+            tts_synthesizer=tts_synthesizer,
+            audio_output_callback=audio_output_callback,
+            query_router=query_router,
+        )
+
+        logger.info("✓ Pipeline orchestrator initialized with all optimizations")
+        logger.info("  - STT beam_size=1 optimization active")
+        logger.info("  - Smart model router active (Haiku/Sonnet/Opus)")
+        logger.info("  - Sentence-level streaming TTS active")
+        logger.info("  - TTS phrase cache active")
+
+        # Test OpenClaw Gateway connection
+        logger.info("Testing OpenClaw Gateway connection...")
+        try:
+            await openclaw_client.connect()
+            logger.info(f"✓ Connected to OpenClaw Gateway ({config.openclaw.base_url})")
+        except Exception as e:
+            logger.error(f"✗ Failed to connect to OpenClaw Gateway: {e}")
+            logger.error("Check OPENCLAW_BASE_URL and OPENCLAW_AUTH_TOKEN in .env")
+            logger.error("Ensure OpenClaw Gateway is running on Synology NAS")
+            return 1
 
         # Initialize FastAPI server
         logger.info("Initializing API server...")
@@ -133,7 +265,15 @@ async def main():
 
         # Create tasks for both servers
         discord_task = asyncio.create_task(
-            run_bot(config), name="discord_bot"
+            run_bot(
+                config=config,
+                openclaw_config=openclaw_config,
+                tts_synthesizer=tts_synthesizer,
+                stt_transcriber=stt_transcriber,
+                orchestrator=orchestrator,
+                audio_output_callbacks=audio_output_callbacks,
+            ),
+            name="discord_bot",
         )
         logger.info("✓ Discord bot started")
 

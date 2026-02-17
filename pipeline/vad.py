@@ -131,9 +131,14 @@ class SileroVAD:
         with torch.no_grad():
             speech_prob = self.model(audio_tensor, self.sample_rate).item()
 
+        # Debug logging - log speech probability when it's above a minimal threshold
+        if speech_prob > 0.1:
+            logger.info(f"VAD: speech_prob={speech_prob:.3f}, threshold={self.speech_threshold:.3f}")
+
         # Determine state based on threshold
         if speech_prob >= self.speech_threshold:
             new_state = SpeechState.SPEECH
+            logger.info(f"SPEECH DETECTED! probability={speech_prob:.3f}")
         else:
             new_state = SpeechState.SILENCE
 

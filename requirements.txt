@@ -42,10 +42,11 @@ python-multipart>=0.0.6  # File upload support
 aiofiles>=23.2.0  # Async file operations
 
 # ============================================================================
-# HTTP Clients
+# HTTP Clients & WebSocket
 # ============================================================================
 httpx>=0.25.0  # Async HTTP client for OpenClaw API
 aiohttp>=3.9.0  # Alternative async HTTP
+websockets>=12.0  # WebSocket client for OpenClaw Gateway
 
 # ============================================================================
 # Configuration & Environment

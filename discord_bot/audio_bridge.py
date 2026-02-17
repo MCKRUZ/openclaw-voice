@@ -111,6 +111,7 @@ class AudioBridge:
         """
         self.loop = loop
         self._audio_sources: dict[int, PipelineAudioSource] = {}
+        self._audio_receivers: dict[int, "AudioReceiver"] = {}  # type: ignore
         self._audio_callback: Optional[Callable[[int, int, bytes], None]] = None
 
     def set_audio_callback(
@@ -130,27 +131,44 @@ class AudioBridge:
         """
         Start receiving audio from Discord voice channel.
 
-        NOTE: Audio receiving implementation pending Phase 4+.
-        For now, this is a placeholder.
-
         Args:
             guild_id: Discord guild ID
             voice_client: Connected voice client
         """
-        logger.info(
-            f"Audio receiving for guild {guild_id}: TODO (Phase 4+)"
-        )
-        # TODO: Phase 4+ - Implement actual audio receiving
-        # Will use voice_client.listen() or custom packet handler
+        try:
+            from .audio_receiver import AudioReceiver
 
-    async def stop_receiving(self, guild_id: int) -> None:
+            # Create and start audio receiver
+            receiver = AudioReceiver(
+                guild_id=guild_id,
+                voice_client=voice_client,
+                callback=self._audio_callback,
+                loop=self.loop
+            )
+
+            receiver.start()
+            self._audio_receivers[guild_id] = receiver
+
+            logger.info(f"Started receiving audio for guild {guild_id}")
+
+        except Exception as e:
+            logger.error(f"Error starting audio receiving for guild {guild_id}: {e}", exc_info=True)
+
+    async def stop_receiving(self, guild_id: int, voice_client: discord.VoiceClient = None) -> None:
         """
         Stop receiving audio from Discord voice channel.
 
         Args:
             guild_id: Discord guild ID
+            voice_client: Connected voice client (optional)
         """
-        logger.debug(f"Stop receiving audio for guild {guild_id}")
+        try:
+            receiver = self._audio_receivers.pop(guild_id, None)
+            if receiver:
+                receiver.stop()
+                logger.info(f"Stopped receiving audio for guild {guild_id}")
+        except Exception as e:
+            logger.error(f"Error stopping audio receiving for guild {guild_id}: {e}")
 
     async def play_audio(
         self,
@@ -227,6 +245,11 @@ class AudioBridge:
     async def cleanup(self) -> None:
         """Clean up all audio bridges."""
         logger.info("Cleaning up audio bridges")
+
+        # Stop all receivers
+        for receiver in self._audio_receivers.values():
+            receiver.stop()
+        self._audio_receivers.clear()
 
         # Clear sources
         self._audio_sources.clear()

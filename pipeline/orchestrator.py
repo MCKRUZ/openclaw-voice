@@ -16,7 +16,9 @@ from typing import Callable, Dict, Optional
 import numpy as np
 
 from pipeline.audio_buffer import AudioRingBuffer
-from pipeline.relevance_filter import RelevanceClassifier
+from pipeline.query_router import QueryRouter
+from pipeline.relevance_filter import RelevanceFilter
+from pipeline.sentence_splitter import split_streaming_response
 from pipeline.transcriber import STTTranscriber
 from pipeline.transcript_manager import TranscriptManager
 from pipeline.turn_detector import SmartTurnDetector
@@ -110,10 +112,11 @@ class PipelineOrchestrator:
         turn_detector: SmartTurnDetector,
         transcriber: STTTranscriber,
         transcript_manager: TranscriptManager,
-        relevance_classifier: RelevanceClassifier,
+        relevance_filter: RelevanceFilter,
         llm_client: Callable,  # OpenClaw client
         tts_synthesizer: TTSSynthesizer,
         audio_output_callback: Callable[[int, np.ndarray], None],
+        query_router: Optional[QueryRouter] = None,
     ):
         """
         Initialize pipeline orchestrator.
@@ -124,20 +127,22 @@ class PipelineOrchestrator:
             turn_detector: Smart Turn detector
             transcriber: STT transcriber
             transcript_manager: Transcript manager
-            relevance_classifier: Relevance filter
+            relevance_filter: Relevance filter
             llm_client: LLM client for responses (OpenClaw)
             tts_synthesizer: TTS synthesizer
             audio_output_callback: Callback for playing audio (user_id, audio)
+            query_router: Query router for model selection (optional)
         """
         self.config = config
         self.vad = vad
         self.turn_detector = turn_detector
         self.transcriber = transcriber
         self.transcript_manager = transcript_manager
-        self.relevance_classifier = relevance_classifier
+        self.relevance_filter = relevance_filter
         self.llm_client = llm_client
         self.tts_synthesizer = tts_synthesizer
         self.audio_output_callback = audio_output_callback
+        self.query_router = query_router or QueryRouter(default_model="sonnet")
 
         # Per-user pipelines
         self.pipelines: Dict[int, UserPipeline] = {}
@@ -154,6 +159,10 @@ class PipelineOrchestrator:
 
         # Current agent
         self.current_agent = "jarvis"
+
+        # Start speech timeout monitor
+        self._shutdown = False
+        self._monitor_task = asyncio.create_task(self._monitor_speech_timeouts())
 
         logger.info(f"Pipeline orchestrator initialized: {config}")
 
@@ -238,9 +247,13 @@ class PipelineOrchestrator:
             audio_frame: Audio chunk
         """
         # Run VAD (CPU, fast)
-        is_speech = self.vad.process_chunk(audio_frame)
+        state, speech_prob = self.vad.process_chunk(audio_frame)
 
         current_time = time.time()
+
+        # Check if speech is detected
+        from pipeline.vad import SpeechState
+        is_speech = (state == SpeechState.SPEECH)
 
         if is_speech:
             # Speech detected
@@ -270,6 +283,27 @@ class PipelineOrchestrator:
                         f"(silence: {silence_duration:.2f}s)"
                     )
                     await self._handle_speech_end(pipeline)
+
+    async def _monitor_speech_timeouts(self) -> None:
+        """Background task to monitor for speech timeouts."""
+        while not self._shutdown:
+            try:
+                await asyncio.sleep(0.1)  # Check every 100ms
+
+                current_time = time.time()
+                for user_id, pipeline in list(self.pipelines.items()):
+                    if pipeline.state == PipelineState.LISTENING:
+                        if pipeline.last_speech_time:
+                            silence_duration = current_time - pipeline.last_speech_time
+                            if silence_duration >= self.config.vad_silence_duration:
+                                # Speech ended due to timeout
+                                logger.info(
+                                    f"Speech ended (timeout): {pipeline.user_name} "
+                                    f"(silence: {silence_duration:.2f}s)"
+                                )
+                                await self._handle_speech_end(pipeline)
+            except Exception as e:
+                logger.error(f"Error in speech timeout monitor: {e}", exc_info=True)
 
     async def _handle_speech_end(self, pipeline: UserPipeline) -> None:
         """
@@ -404,12 +438,12 @@ class PipelineOrchestrator:
                 context = self.transcript_manager.get_context(format="readable")
 
                 should_respond = await asyncio.wait_for(
-                    self.relevance_classifier.classify(
+                    self.relevance_filter.classify(
                         utterance=transcript.text,
                         speaker=pipeline.user_name,
                         transcript=context,
                         agent=self.current_agent,
-                        sensitivity=self.relevance_classifier.sensitivity,
+                        sensitivity=self.relevance_filter.sensitivity,
                     ),
                     timeout=self.config.relevance_timeout,
                 )
@@ -429,54 +463,103 @@ class PipelineOrchestrator:
                     f"(latency: {pipeline.stage_latencies['relevance']:.3f}s)"
                 )
 
-                # 4. Generate response (LLM)
+                # 4. Route query to optimal model
+                routing_start = time.time()
+                routing_decision = self.query_router.route(transcript.text)
+                pipeline.stage_latencies["routing"] = time.time() - routing_start
+
+                logger.info(
+                    f"Routed to {routing_decision.model} "
+                    f"(confidence: {routing_decision.confidence:.2f}, "
+                    f"reason: {routing_decision.reason})"
+                )
+
+                # 5. Generate response with streaming TTS
+                pipeline.state = PipelineState.RESPONDING
+
                 llm_start = time.time()
-                response_text = await asyncio.wait_for(
-                    self.llm_client(
+                first_audio_time = None
+                full_response_text = []
+
+                try:
+                    # Stream LLM response and split into sentences
+                    text_stream = self.llm_client.send_message_streaming(
                         agent=self.current_agent,
                         message=transcript.text,
                         context=context,
                         speaker=pipeline.user_name,
-                    ),
-                    timeout=self.config.llm_timeout,
-                )
-                pipeline.stage_latencies["llm"] = time.time() - llm_start
+                        model=routing_decision.model_id,
+                    )
 
-                logger.info(
-                    f"LLM response ({self.current_agent}): "
-                    f'"{response_text[:100]}..." '
-                    f"(latency: {pipeline.stage_latencies['llm']:.3f}s)"
-                )
+                    sentence_stream = split_streaming_response(text_stream)
 
-                # 5. Add bot response to transcript
-                self.transcript_manager.add_entry(
-                    speaker=self.current_agent.title(), text=response_text
-                )
+                    # Process each sentence as it arrives
+                    async for sentence in sentence_stream:
+                        # Record first sentence timing (critical metric)
+                        if sentence.index == 0:
+                            pipeline.stage_latencies["llm_first_sentence"] = time.time() - llm_start
+                            logger.info(
+                                f"First sentence from LLM in {pipeline.stage_latencies['llm_first_sentence']:.3f}s: "
+                                f'"{sentence.text}"'
+                            )
 
-                # 6. Synthesize speech (TTS)
-                pipeline.state = PipelineState.RESPONDING
+                        # Collect full text for transcript
+                        full_response_text.append(sentence.text)
 
-                tts_start = time.time()
-                audio_output = await asyncio.wait_for(
-                    self.tts_synthesizer.synthesize(
-                        agent=self.current_agent, text=response_text
-                    ),
-                    timeout=self.config.tts_timeout,
-                )
-                pipeline.stage_latencies["tts"] = time.time() - tts_start
+                        # Generate TTS for this sentence
+                        tts_start = time.time()
+                        audio_chunk = await asyncio.wait_for(
+                            self.tts_synthesizer.synthesize(
+                                agent=self.current_agent,
+                                text=sentence.text,
+                            ),
+                            timeout=self.config.tts_timeout,
+                        )
 
-                if audio_output is None:
-                    logger.error("TTS synthesis failed")
+                        if sentence.index == 0:
+                            pipeline.stage_latencies["tts_first_chunk"] = time.time() - tts_start
+
+                        if audio_chunk is None:
+                            logger.warning(f"TTS failed for sentence #{sentence.index}")
+                            continue
+
+                        # Play audio immediately
+                        self.audio_output_callback(pipeline.user_id, audio_chunk)
+
+                        # Track first audio playback time (time to first audio)
+                        if first_audio_time is None:
+                            first_audio_time = time.time() - llm_start
+                            pipeline.stage_latencies["time_to_first_audio"] = first_audio_time
+                            logger.info(
+                                f"First audio playing in {first_audio_time:.3f}s "
+                                f"(LLM: {pipeline.stage_latencies['llm_first_sentence']:.3f}s, "
+                                f"TTS: {pipeline.stage_latencies['tts_first_chunk']:.3f}s)"
+                            )
+
+                        logger.debug(
+                            f"Played sentence #{sentence.index} "
+                            f"({len(audio_chunk) / self.config.sample_rate:.2f}s audio)"
+                        )
+
+                    # Streaming complete
+                    pipeline.stage_latencies["llm"] = time.time() - llm_start
+                    response_text = " ".join(full_response_text)
+
+                    logger.info(
+                        f"Streaming response complete ({self.current_agent}, {routing_decision.model}): "
+                        f'"{response_text[:100]}..." '
+                        f"(total latency: {pipeline.stage_latencies['llm']:.3f}s)"
+                    )
+
+                    # Add bot response to transcript
+                    self.transcript_manager.add_entry(
+                        speaker=self.current_agent.title(), text=response_text
+                    )
+
+                except Exception as e:
+                    logger.error(f"Streaming TTS pipeline error: {e}", exc_info=True)
                     pipeline.state = PipelineState.IDLE
                     return
-
-                logger.info(
-                    f"TTS generated {len(audio_output) / self.config.sample_rate:.2f}s audio "
-                    f"(latency: {pipeline.stage_latencies['tts']:.3f}s)"
-                )
-
-                # 7. Play audio
-                self.audio_output_callback(pipeline.user_id, audio_output)
 
                 # Update stats
                 pipeline.total_responses += 1
@@ -550,7 +633,7 @@ class PipelineOrchestrator:
         Args:
             sensitivity: Sensitivity level ("low", "medium", "high")
         """
-        self.relevance_classifier.sensitivity = sensitivity.lower()
+        self.relevance_filter.sensitivity = sensitivity.lower()
         logger.info(f"Set sensitivity to: {sensitivity}")
 
     def get_stats(self) -> dict:
@@ -570,7 +653,16 @@ class PipelineOrchestrator:
         # Calculate average latencies
         avg_latencies = {}
         if total_responses > 0:
-            for stage in ["stt", "relevance", "llm", "tts", "total"]:
+            for stage in [
+                "stt",
+                "routing",
+                "relevance",
+                "llm_first_sentence",
+                "tts_first_chunk",
+                "time_to_first_audio",
+                "llm",
+                "total",
+            ]:
                 latencies = [
                     p.stage_latencies.get(stage, 0)
                     for p in self.pipelines.values()
@@ -583,13 +675,14 @@ class PipelineOrchestrator:
         return {
             "active_users": len(self.pipelines),
             "current_agent": self.current_agent,
-            "sensitivity": self.relevance_classifier.sensitivity,
+            "sensitivity": self.relevance_filter.sensitivity,
             "total_audio_frames": self.total_audio_frames,
             "total_utterances": total_utterances,
             "total_responses": total_responses,
             "total_cancellations": total_cancellations,
             "total_pipeline_runs": self.total_pipeline_runs,
             "total_errors": self.total_errors,
+            "router_stats": self.query_router.get_stats(),
             **avg_latencies,
         }
 
